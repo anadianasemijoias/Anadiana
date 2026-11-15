@@ -1,4 +1,30 @@
 import streamlit as st
+import pymongo
+from datetime import datetime
+
+@st.cache_resource
+def get_db():
+    """Retorna o banco de dados MongoDB (conexão cacheada)."""
+    uri = st.secrets["mongo"]["uri"]
+    client = pymongo.MongoClient(uri)
+    return client[st.secrets["mongo"]["db_name"]]
+
+def brl(valor):
+    """Formata número como moeda brasileira."""
+    try:
+        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (TypeError, ValueError):
+        return "R$ 0,00"
+
+def pct(valor):
+    """Formata número como percentual."""
+    try:
+        return f"{float(valor)*100:.2f}%".replace(".", ",")
+    except (TypeError, ValueError):
+        return "0,00%"
+
+def agora():
+    return datetime.now()
 
 def carregar_css():
     """Aplica estilos personalizados (identidade visual Anadiana)."""
@@ -18,7 +44,7 @@ def carregar_css():
             color: #2C2C2C;
         }
 
-        /* Deixar os botões mais elegantes (formato arredondado, sem sombra pesada) */
+        /* Deixar os botões mais elegantes */
         .stButton>button {
             border-radius: 4px;
             font-family: 'Lato', sans-serif;
@@ -34,13 +60,13 @@ def carregar_css():
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
-        /* Barra lateral um pouco mais escura para contraste */
+        /* Barra lateral ajustada para a cor de fundo da marca */
         [data-testid="stSidebar"] {
             background-color: #F0EBE1;
             border-right: 1px solid #E0D8C8;
         }
         
-        /* Esconder o menu hamburger e o footer do Streamlit para parecer um site/app */
+        /* Esconder o menu hamburger e o footer do Streamlit */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         
