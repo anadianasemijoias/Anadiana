@@ -9,40 +9,29 @@ def verificar_senha(senha_digitada, senha_hash):
     return bcrypt.verify(senha_digitada, senha_hash)
 
 def criar_usuarios_iniciais():
-    """Cria Diego (Admin) e Kellen (Funcionária) se o banco estiver vazio."""
-    db = get_db()
-    usuarios_col = db["usuarios"]
-
-    if usuarios_col.count_documents({}) == 0:
-        usuarios_col.insert_many([
-            {
-                "nome": "Diego Roberto",
-                "usuario": "diego",
-                "senha": hash_senha("Diana@164707"),
-                "cargo": "Administrador",
-                "ativo": True,
-            },
-            {
-                "nome": "Kellen Santos",
-                "usuario": "kellen",
-                "senha": hash_senha("Diana@164707"),
-                "cargo": "Funcionário",
-                "ativo": True,
-            },
-        ])
-        st.toast("Usuários iniciais criados: diego e kellen (senha Diana@164707)", icon="✅")
+    # ... (mantenha como estava) ...
+    pass
 
 def tela_login():
-    # Layout centralizado para a logo
-    col1, col2, col3 = st.columns([1, 1.5, 1])
+    # Layout centralizado
+    col1, col2, col3 = st.columns([1, 1.2, 1])
     
     with col2:
-        # Tenta carregar a logo, se não existir, mostra o texto
+        # OPÇÃO 1: Usar a imagem menor (deixe o try/except)
         try:
-            st.image("logo.png", use_column_width=True)
+            # Largura de 250px para não ficar gigante
+            st.image("logo.png", width=250)
+            
+        # OPÇÃO 2: Usar apenas o texto elegante (se apagar a imagem, ele cai aqui)
         except:
-            st.markdown("<h1 style='text-align: center; font-size: 3rem;'>ANADIANA</h1>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align: center; font-style: italic;'>Semijoias & Acessórios</p>", unsafe_allow_html=True)
+            st.markdown("""
+                <h1 style='text-align: center; font-family: "Cormorant Garamond", serif; font-size: 3.5rem; margin-bottom: 0; padding-bottom: 0; color: #2C2C2C;'>
+                    ANADIANA
+                </h1>
+                <p style='text-align: center; font-family: "Lato", sans-serif; font-size: 0.9rem; letter-spacing: 3px; color: #8A8A8A; text-transform: uppercase; margin-top: 5px;'>
+                    Semijoias & Acessórios
+                </p>
+            """, unsafe_allow_html=True)
     
     st.write("---")
     st.subheader("Acesso ao Sistema")
