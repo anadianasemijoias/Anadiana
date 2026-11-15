@@ -33,13 +33,25 @@ def criar_usuarios_iniciais():
         st.toast("Usuários iniciais criados: diego e kellen (senha Diana@164707)", icon="✅")
 
 def tela_login():
-    st.title("💎 Anadiana Semijoias")
+    # Layout centralizado para a logo
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    
+    with col2:
+        # Tenta carregar a logo, se não existir, mostra o texto
+        try:
+            st.image("logo.png", use_column_width=True)
+        except:
+            st.markdown("<h1 style='text-align: center; font-size: 3rem;'>ANADIANA</h1>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; font-style: italic;'>Semijoias & Acessórios</p>", unsafe_allow_html=True)
+    
+    st.write("---")
     st.subheader("Acesso ao Sistema")
+    st.write("")
 
     with st.form("login_form"):
         usuario_input = st.text_input("Usuário").strip().lower()
         senha_input = st.text_input("Senha", type="password")
-        botao_login = st.form_submit_button("Entrar")
+        botao_login = st.form_submit_button("Entrar", use_container_width=True)
 
         if botao_login:
             db = get_db()
