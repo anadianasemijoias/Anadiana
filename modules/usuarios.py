@@ -35,7 +35,7 @@ def tela_usuarios():
             [
                 {
                     "Nome": u["nome"],
-                    "Usuário": u["usuario"],
+                    "Login": u["usuario"],
                     "Cargo": u["cargo"],
                     "Ativo": "✅" if u.get("ativo") else "❌",
                 }
@@ -53,7 +53,7 @@ def tela_usuarios():
     with st.expander("➕ Cadastrar novo usuário", expanded=False):
         with st.form("novo_usuario"):
             nome = st.text_input("Nome completo")
-            usuario = st.text_input("Usuário (login)").strip().lower()
+            usuario = st.text_input("Login (usuário)").strip().lower()
             senha = st.text_input("Senha", type="password")
             cargo = st.selectbox("Cargo", ["Administrador", "Funcionário"])
             submit = st.form_submit_button("Cadastrar")
@@ -62,9 +62,11 @@ def tela_usuarios():
                 if not (nome and usuario and senha):
                     st.error("Preencha todos os campos.")
                 elif col.find_one({"usuario": usuario}):
-                    st.error("Este usuário já existe.")
+                    st.error("Este login já existe.")
                 elif len(senha) < 6:
                     st.error("A senha deve ter pelo menos 6 caracteres.")
+                elif " " in usuario:
+                    st.error("O login não pode conter espaços.")
                 else:
                     col.insert_one({
                         "nome": nome,
@@ -90,8 +92,8 @@ def tela_usuarios():
     user_id = str(user["_id"])
 
     with st.form("editar_usuario"):
-        st.markdown(f"**Usuário:** `{user['usuario']}`")
         novo_nome = st.text_input("Nome completo", value=user["nome"])
+        novo_login = st.text_input("Login (usuário)", value=user["usuario"]).strip().lower()
         novo_cargo = st.selectbox(
             "Cargo",
             ["Administrador", "Funcionário"],
@@ -107,21 +109,30 @@ def tela_usuarios():
 
         if salvar:
             erro = False
+            dados = {"nome": novo_nome, "cargo": novo_cargo, "ativo": novo_ativo}
 
-            # Proteção: não permitir desativar o último admin ativo
-            if user["cargo"] == "Administrador" and not novo_ativo:
-                if _contar_admins_ativos(col, ignorar_id=user_id) == 0:
-                    st.error("Não é possível desativar o último administrador ativo.")
+            # Validação do login
+            if not novo_login:
+                st.error("O login não pode ficar em branco.")
+                erro = True
+            elif " " in novo_login:
+                st.error("O login não pode conter espaços.")
+                erro = True
+            elif novo_login != user["usuario"]:
+                # Só verifica duplicidade se mudou
+                if col.find_one({"usuario": novo_login, "_id": {"$ne": ObjectId(user_id)}}):
+                    st.error("Este login já está em uso por outro usuário.")
                     erro = True
+                else:
+                    dados["usuario"] = novo_login
 
-            # Proteção: não permitir rebaixar o último admin ativo
-            if user["cargo"] == "Administrador" and novo_cargo != "Administrador":
+            # Proteção: não permitir desativar/rebaixar o último admin ativo
+            if user["cargo"] == "Administrador" and (not novo_ativo or novo_cargo != "Administrador"):
                 if _contar_admins_ativos(col, ignorar_id=user_id) == 0:
-                    st.error("Não é possível rebaixar o último administrador ativo.")
+                    st.error("Não é possível desativar ou rebaixar o último administrador ativo.")
                     erro = True
 
             # Senha
-            dados = {"nome": novo_nome, "cargo": novo_cargo, "ativo": novo_ativo}
             if nova_senha or confirmar_senha:
                 if nova_senha != confirmar_senha:
                     st.error("As senhas não coincidem.")
@@ -138,10 +149,7 @@ def tela_usuarios():
                 st.rerun()
 
     st.divider()
-
-    # ---------- DICA ----------
     st.caption(
-        "💡 Para **excluir** um usuário, o recomendado é apenas desativá-lo "
-        "(desmarcar 'Usuário ativo'). Assim o histórico de lançamentos "
-        "vinculados a ele é preservado."
+        "💡 O **login** deve ser único e sem espaços (use ponto, underline ou hífen). "
+        "Para excluir um usuário, prefira **desativá-lo** — assim o histórico é preservado."
     )
