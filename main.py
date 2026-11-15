@@ -9,8 +9,12 @@ from modules.auth import tela_login, criar_usuarios_iniciais
 from modules.config import tela_config
 from modules.usuarios import tela_usuarios
 from modules.produtos import tela_produtos
+from modules.utils import carregar_css # <-- Importando o CSS
 
 st.set_page_config(page_title="Anadiana Semijoias", page_icon="💎", layout="wide")
+
+# Aplica o tema (cores e fontes)
+carregar_css()
 
 # Garante usuários iniciais
 try:
@@ -27,35 +31,51 @@ if "logged_in" not in st.session_state:
 if not st.session_state["logged_in"]:
     tela_login()
 else:
-    st.sidebar.title(f"Olá, {st.session_state['usuario_logado']}!")
-    st.sidebar.write(f"Cargo: {st.session_state['cargo']}")
+    # --- BARRA LATERAL ---
+    with st.sidebar:
+        # Logo no topo da Sidebar
+        try:
+            st.image("logo.png", use_column_width=True)
+        except:
+            st.markdown("<h2 style='text-align: center; font-size: 2rem;'>ANADIANA</h2>", unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Informações do usuário
+        st.markdown(f"👤 **{st.session_state['usuario_logado']}**")
+        st.caption(f"Cargo: {st.session_state['cargo']}")
+        
+        st.markdown("---")
 
-    opcoes = [
-        "🏠 Início",
-        "🎯 Painel",
-        "⚙️ Parâmetros",
-        "📦 Produtos",
-        "🛒 Compras",
-        "💰 Vendas",
-        "💳 Recebimentos",
-        "🧾 Despesas",
-        "🤝 Sócios",
-        "🔄 Ajustes",
-        "💵 Caixa",
-        "📊 DRE",
-    ]
-    if st.session_state.get("cargo") == "Administrador":
-        opcoes.append("👥 Usuários")
+        opcoes = [
+            "🏠 Início",
+            "🎯 Painel",
+            "⚙️ Parâmetros",
+            "📦 Produtos",
+            "🛒 Compras",
+            "💰 Vendas",
+            "💳 Recebimentos",
+            "🧾 Despesas",
+            "🤝 Sócios",
+            "🔄 Ajustes",
+            "💵 Caixa",
+            "📊 DRE",
+        ]
+        if st.session_state.get("cargo") == "Administrador":
+            opcoes.append("👥 Usuários")
 
-    menu = st.sidebar.radio("Navegação", opcoes)
+        menu = st.sidebar.radio("Navegação", opcoes)
+        
+        st.write("")
+        
+        # Botão Sair
+        if st.button("Sair do Sistema", use_container_width=True):
+            for k in ["logged_in", "usuario_logado", "usuario_id", "cargo"]:
+                st.session_state[k] = None
+            st.session_state["logged_in"] = False
+            st.rerun()
 
-    if st.sidebar.button("Sair"):
-        for k in ["logged_in", "usuario_logado", "usuario_id", "cargo"]:
-            st.session_state[k] = None
-        st.session_state["logged_in"] = False
-        st.rerun()
-
-    # Roteamento
+    # --- ROTEAMENTO DAS PÁGINAS ---
     if menu == "🏠 Início":
         st.title("💎 Anadiana Semijoias")
         st.write("Bem-vindo ao sistema de gestão.")
