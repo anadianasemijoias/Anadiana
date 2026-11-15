@@ -1,7 +1,14 @@
+import sys
+import os
+
+# Garante que a raiz do projeto esteja no sys.path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import streamlit as st
 from modules.auth import tela_login, criar_usuarios_iniciais
 from modules.config import tela_config
 from modules.usuarios import tela_usuarios
+from modules.produtos import tela_produtos
 
 st.set_page_config(page_title="Anadiana Semijoias", page_icon="💎", layout="wide")
 
@@ -20,17 +27,17 @@ if "logged_in" not in st.session_state:
 if not st.session_state["logged_in"]:
     tela_login()
 else:
-    # Menu lateral
     st.sidebar.title(f"Olá, {st.session_state['usuario_logado']}!")
     st.sidebar.write(f"Cargo: {st.session_state['cargo']}")
 
-    opcoes = ["🏠 Início", "⚙️ Parâmetros"]
+    opcoes = [
+        "🏠 Início",
+        "⚙️ Parâmetros",
+        "📦 Produtos",
+        "🛒 Compras",
+    ]
     if st.session_state.get("cargo") == "Administrador":
         opcoes.append("👥 Usuários")
-
-    # Módulos futuros (descomente conforme for criando):
-    # opcoes += ["📦 Produtos", "🛒 Compras", "💰 Vendas", "💳 Recebimentos",
-    #            "🧾 Despesas", "🤝 Sócios", "🔄 Ajustes"]
 
     menu = st.sidebar.radio("Navegação", opcoes)
 
@@ -44,21 +51,25 @@ else:
     if menu == "🏠 Início":
         st.title("💎 Anadiana Semijoias")
         st.write("Bem-vindo ao sistema de gestão.")
-        st.info("Use o menu lateral para navegar entre os módulos. "
-                "Comece por **Parâmetros** para configurar taxas, margem e o mês de análise.")
+        st.info("Use o menu lateral para navegar. Comece por **Parâmetros**.")
         st.subheader("Módulos planejados")
         st.markdown("""
-        - ⚙️ **Parâmetros** ✅ (disponível)
-        - 👥 **Usuários** ✅ (disponível para Admin)
-        - 📦 **Produtos** (próximo)
-        - 🛒 **Compras**
-        - 💰 **Vendas** + Itens
+        - ⚙️ **Parâmetros** ✅
+        - 👥 **Usuários** ✅
+        - 📦 **Produtos** ✅
+        - 🛒 **Compras** ✅
+        - 💰 **Vendas** + Itens (próximo)
         - 💳 **Recebimentos**
         - 🧾 **Despesas** e 🤝 **Sócios**
         - 🔄 **Ajustes**
-        - 📊 **Caixa, DRE e Painel** (calculados)
+        - 📊 **Caixa, DRE e Painel**
         """)
     elif menu == "⚙️ Parâmetros":
         tela_config()
+    elif menu == "📦 Produtos":
+        tela_produtos()
+    elif menu == "🛒 Compras":
+        from modules.compras import tela_compras
+        tela_compras()
     elif menu == "👥 Usuários":
         tela_usuarios()
