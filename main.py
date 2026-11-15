@@ -1,91 +1,242 @@
-import sys
-import os
-
-# Garante que a raiz do projeto esteja no sys.path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import streamlit as st
-from modules.auth import tela_login, criar_usuarios_iniciais
-from modules.config import tela_config
-from modules.usuarios import tela_usuarios
-from modules.produtos import tela_produtos
+from datetime import datetime, date
+from bson import ObjectId
+from modules.utils import get_db, brl
 
-st.set_page_config(page_title="Anadiana Semijoias", page_icon="💎", layout="wide")
 
-# Garante usuários iniciais
-try:
-    criar_usuarios_iniciais()
-except Exception as e:
-    st.error(f"Erro ao conectar ao banco de dados. Detalhes: {e}")
-    st.stop()
+# Tipo -> sinal aplicado ao estoque
+TIPOS_AJUSTE = {
+    "Perda": -1,
+    "Brinde": -1,
+    "Devolução de cliente": +1,
+    "Troca (saída)": -1,
+    "Troca (entrada)": +1,
+    "Acerto de inventário (positivo)": +1,
+    "Acerto de inventário (negativo)": -1,
+}
 
-# Inicializa sessão
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
 
-# --- FLUXO ---
-if not st.session_state["logged_in"]:
-    tela_login()
-else:
-    st.sidebar.title(f"Olá, {st.session_state['usuario_logado']}!")
-    st.sidebar.write(f"Cargo: {st.session_state['cargo']}")
+def _apenas_admin_ou_func():
+    if st.session_state.get("cargo") not in ("Administrador", "Funcionário"):
+        st.warning("Acesso restrito.")
+        return False
+    return True
 
-    opcoes = [
-        "🏠 Início",
-        "⚙️ Parâmetros",
-        "📦 Produtos",
-        "🛒 Compras",
-        "💰 Vendas",
-        "💳 Recebimentos",
-        "🧾 Despesas",
-        "🤝 Sócios",
-    ]
-    if st.session_state.get("cargo") == "Administrador":
-        opcoes.append("👥 Usuários")
 
-    menu = st.sidebar.radio("Navegação", opcoes)
+def _estoque_disponivel(db, sku):
+    """Estoque atual do SKU (compras − vendas + ajustes)."""
+    compras = list(db["compras"].aggregate([
+        {"$match": {"sku": sku}},
+        {"$group": {"_id": None, "qtd": {"$sum": "$quantidade"}}},
+    ]))
+    vendas = list(db["itens_venda"].aggregate([
+        {"$match": {"sku": sku}},
+        {"$group": {"_id": None, "qtd": {"$sum": "$quantidade"}}},
+    ]))
+    ajustes = list(db["ajustes"].aggregate([
+        {"$match": {"sku": sku}},
+        {"$group": {"_id": None, "qtd": {"$sum": "$quantidade"}}},
+    ]))
+    qc = compras[0]["qtd"] if compras else 0
+    qv = vendas[0]["qtd"] if vendas else 0
+    qa = ajustes[0]["qtd"] if ajustes else 0
+    return qc - qv + qa
 
-    if st.sidebar.button("Sair"):
-        for k in ["logged_in", "usuario_logado", "usuario_id", "cargo"]:
-            st.session_state[k] = None
-        st.session_state["logged_in"] = False
+
+def tela_ajustes():
+    st.header("🔄 Ajustes de Estoque")
+    st.caption(
+        "Perdas, brindes, devoluções, trocas e acertos de inventário. "
+        "Ajuste **não mexe em caixa** e **não entra na DRE** — apenas corrige o estoque."
+    )
+
+    if not _apenas_admin_ou_func():
+        return
+
+    db = get_db()
+    col = db["ajustes"]
+
+    produtos = list(db["produtos"].find({"status": "Ativo"}).sort("sku", 1))
+    if not produtos:
+        st.warning("Cadastre produtos antes de lançar ajustes.")
+        return
+
+    mapa_prod = {p["sku"]: p for p in produtos}
+    skus = list(mapa_prod.keys())
+
+    # ---------- LISTAGEM ----------
+    st.subheader("Ajustes lançados")
+    ajustes = list(col.find({}).sort("data_ajuste", -1).limit(300))
+
+    if ajustes:
+        linhas = []
+        for a in ajustes:
+            qtd = a.get("quantidade", 0)
+            sinal = "+" if qtd > 0 else ""
+            linhas.append({
+                "Data": a["data_ajuste"].strftime("%d/%m/%Y") if a.get("data_ajuste") else "",
+                "SKU": a["sku"],
+                "Produto": a.get("produto_nome", ""),
+                "Tipo": a.get("tipo", ""),
+                "Qtd (líq.)": f"{sinal}{qtd}",
+                "Motivo": a.get("motivo", ""),
+                "Lançado por": a.get("criado_por", ""),
+            })
+        st.dataframe(linhas, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhum ajuste lançado ainda.")
+
+    st.divider()
+
+    # ---------- CADASTRO ----------
+    with st.expander("➕ Lançar novo ajuste", expanded=not ajustes):
+        with st.form("novo_ajuste", clear_on_submit=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                data_ajuste = st.date_input("Data do ajuste *", value=date.today())
+                sku = st.selectbox("SKU *", skus)
+                estoque_atual = _estoque_disponivel(db, sku)
+                st.info(f"Estoque atual do SKU: **{estoque_atual}** peça(s)")
+            with col2:
+                tipo = st.selectbox("Tipo de ajuste *", list(TIPOS_AJUSTE.keys()))
+                quantidade = st.number_input(
+                    "Quantidade * (sempre positiva)",
+                    min_value=1, value=1, step=1,
+                )
+            with col3:
+                motivo = st.text_input("Motivo / observações *")
+
+            submit = st.form_submit_button("💾 Lançar ajuste")
+
+            if submit:
+                erros = []
+                if quantidade <= 0:
+                    erros.append("A quantidade deve ser maior que zero.")
+                if not motivo:
+                    erros.append("Informe o motivo do ajuste.")
+
+                # Aviso se a saída deixar estoque negativo
+                sinal = TIPOS_AJUSTE[tipo]
+                qtd_final = sinal * int(quantidade)
+                if sinal < 0 and (estoque_atual - quantidade) < 0:
+                    erros.append(
+                        f"Estoque insuficiente: atual {estoque_atual}, "
+                        f"tentativa de saída {quantidade}. "
+                        f"O estoque ficaria negativo — ajuste a quantidade ou o tipo."
+                    )
+
+                if erros:
+                    for e in erros:
+                        st.error(e)
+                else:
+                    col.insert_one({
+                        "data_ajuste": datetime.combine(data_ajuste, datetime.min.time()),
+                        "sku": sku,
+                        "produto_nome": mapa_prod[sku]["nome"],
+                        "tipo": tipo,
+                        "quantidade": qtd_final,
+                        "motivo": motivo,
+                        "criado_em": datetime.now(),
+                        "criado_por": st.session_state.get("usuario_logado"),
+                    })
+                    st.success(
+                        f"Ajuste lançado: {tipo} de {quantidade} peça(s) no SKU **{sku}**."
+                    )
+                    st.rerun()
+
+    st.divider()
+
+    # ---------- EDIÇÃO ----------
+    st.subheader("✏️ Editar ajuste")
+    if not ajustes:
+        st.info("Nenhum ajuste para editar.")
+        return
+
+    opcoes = {}
+    for a in ajustes:
+        label = (
+            f"{a['data_ajuste'].strftime('%d/%m/%Y') if a.get('data_ajuste') else '—'} · "
+            f"{a['sku']} · {a.get('tipo','')} · {a.get('quantidade',0)}"
+        )
+        opcoes[label] = a
+
+    escolha = st.selectbox("Selecione o ajuste", list(opcoes.keys()))
+    a = opcoes[escolha]
+    ajuste_id = str(a["_id"])
+
+    with st.form("editar_ajuste"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            nova_data = st.date_input(
+                "Data",
+                value=a["data_ajuste"].date() if a.get("data_ajuste") else date.today(),
+            )
+            novo_sku = st.selectbox(
+                "SKU", skus,
+                index=skus.index(a["sku"]) if a["sku"] in skus else 0,
+            )
+        with col2:
+            idx_tipo = list(TIPOS_AJUSTE.keys()).index(a["tipo"]) if a.get("tipo") in TIPOS_AJUSTE else 0
+            novo_tipo = st.selectbox("Tipo", list(TIPOS_AJUSTE.keys()), index=idx_tipo)
+            nova_qtd = st.number_input(
+                "Quantidade", min_value=1,
+                value=abs(int(a.get("quantidade", 1))), step=1,
+            )
+        with col3:
+            novo_motivo = st.text_input("Motivo", value=a.get("motivo", ""))
+
+        salvar = st.form_submit_button("💾 Salvar alterações")
+
+        if salvar:
+            novo_sinal = TIPOS_AJUSTE[novo_tipo]
+            db["ajustes"].update_one(
+                {"_id": ObjectId(ajuste_id)},
+                {"$set": {
+                    "data_ajuste": datetime.combine(nova_data, datetime.min.time()),
+                    "sku": novo_sku,
+                    "produto_nome": mapa_prod[novo_sku]["nome"],
+                    "tipo": novo_tipo,
+                    "quantidade": novo_sinal * int(nova_qtd),
+                    "motivo": novo_motivo,
+                    "atualizado_em": datetime.now(),
+                    "atualizado_por": st.session_state.get("usuario_logado"),
+                }},
+            )
+            st.success("Ajuste atualizado!")
+            st.rerun()
+
+    st.divider()
+
+    # ---------- EXCLUIR ----------
+    st.subheader("🗑️ Excluir ajuste")
+    if st.button("Excluir ajuste selecionado"):
+        col.delete_one({"_id": a["_id"]})
+        st.success("Ajuste excluído.")
         st.rerun()
 
-    # Roteamento
-    if menu == "🏠 Início":
-        st.title("💎 Anadiana Semijoias")
-        st.write("Bem-vindo ao sistema de gestão.")
-        st.info("Use o menu lateral para navegar. Comece por **Parâmetros**.")
-        st.subheader("Módulos planejados")
-        st.markdown("""
-        - ⚙️ **Parâmetros** ✅
-        - 👥 **Usuários** ✅
-        - 📦 **Produtos** ✅
-        - 🛒 **Compras** ✅
-        - 💰 **Vendas + Itens** ✅
-        - 💳 **Recebimentos** ✅
-        - 🧾 **Despesas** e 🤝 **Sócios** ✅
-        - 🔄 **Ajustes** (próximo)
-        - 📊 **Caixa, DRE e Painel**
-        """)
-    elif menu == "⚙️ Parâmetros":
-        tela_config()
-    elif menu == "📦 Produtos":
-        tela_produtos()
-    elif menu == "🛒 Compras":
-        from modules.compras import tela_compras
-        tela_compras()
-    elif menu == "💰 Vendas":
-        from modules.vendas import tela_vendas
-        tela_vendas()
-    elif menu == "💳 Recebimentos":
-        from modules.recebimentos import tela_recebimentos
-        tela_recebimentos()
-    elif menu == "🧾 Despesas":
-        from modules.despesas import tela_despesas
-        tela_despesas()
-    elif menu == "🤝 Sócios":
-        from modules.socios import tela_socios
-        tela_socios()
-    elif menu == "👥 Usuários":
-        tela_usuarios()
+    st.divider()
+
+    # ---------- RESUMO ----------
+    st.subheader("📊 Resumo por tipo")
+    if ajustes:
+        contagem = {}
+        for a in ajustes:
+            t = a.get("tipo", "—")
+            contagem.setdefault(t, {"ocorrencias": 0, "qtd_liquida": 0})
+            contagem[t]["ocorrencias"] += 1
+            contagem[t]["qtd_liquida"] += a.get("quantidade", 0)
+
+        linhas = []
+        for t, v in contagem.items():
+            linhas.append({
+                "Tipo": t,
+                "Ocorrências": v["ocorrencias"],
+                "Qtd líquida": v["qtd_liquida"],
+            })
+        st.dataframe(linhas, use_container_width=True, hide_index=True)
+
+    st.caption(
+        "💡 O ajuste **não gera movimento de caixa** e **não entra na DRE**. "
+        "Ele apenas corrige o estoque, que aparece no módulo de Produtos "
+        "na coluna **Ajustes de estoque (líq.)**."
+    )
