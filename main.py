@@ -37,6 +37,8 @@ else:
         "🛒 Compras",
         "💰 Vendas",
         "💳 Recebimentos",
+        "🧾 Despesas",
+        "🤝 Sócios",
     ]
     if st.session_state.get("cargo") == "Administrador":
         opcoes.append("👥 Usuários")
@@ -62,8 +64,8 @@ else:
         - 🛒 **Compras** ✅
         - 💰 **Vendas + Itens** ✅
         - 💳 **Recebimentos** ✅
-        - 🧾 **Despesas** e 🤝 **Sócios** (próximo)
-        - 🔄 **Ajustes**
+        - 🧾 **Despesas** e 🤝 **Sócios** ✅
+        - 🔄 **Ajustes** (próximo)
         - 📊 **Caixa, DRE e Painel**
         """)
     elif menu == "⚙️ Parâmetros":
@@ -79,5 +81,11 @@ else:
     elif menu == "💳 Recebimentos":
         from modules.recebimentos import tela_recebimentos
         tela_recebimentos()
+    elif menu == "🧾 Despesas":
+        from modules.despesas import tela_despesas
+        tela_despesas()
+    elif menu == "🤝 Sócios":
+        from modules.socios import tela_socios
+        tela_socios()
     elif menu == "👥 Usuários":
         tela_usuarios()
