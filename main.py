@@ -32,6 +32,7 @@ else:
 
     opcoes = [
         "🏠 Início",
+        "🎯 Painel",
         "⚙️ Parâmetros",
         "📦 Produtos",
         "🛒 Compras",
@@ -71,8 +72,11 @@ else:
         - 🔄 **Ajustes** ✅
         - 💵 **Caixa** ✅
         - 📊 **DRE** ✅
-        - 🎯 **Painel** (próximo)
+        - 🎯 **Painel** ✅
         """)
+    elif menu == "🎯 Painel":
+        from modules.painel import tela_painel
+        tela_painel()
     elif menu == "⚙️ Parâmetros":
         tela_config()
     elif menu == "📦 Produtos":
