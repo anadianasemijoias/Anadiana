@@ -41,6 +41,7 @@ else:
         "🤝 Sócios",
         "🔄 Ajustes",
         "💵 Caixa",
+        "📊 DRE",
     ]
     if st.session_state.get("cargo") == "Administrador":
         opcoes.append("👥 Usuários")
@@ -69,7 +70,8 @@ else:
         - 🧾 **Despesas** e 🤝 **Sócios** ✅
         - 🔄 **Ajustes** ✅
         - 💵 **Caixa** ✅
-        - 📊 **DRE e Painel** (próximo)
+        - 📊 **DRE** ✅
+        - 🎯 **Painel** (próximo)
         """)
     elif menu == "⚙️ Parâmetros":
         tela_config()
@@ -96,5 +98,8 @@ else:
     elif menu == "💵 Caixa":
         from modules.caixa import tela_caixa
         tela_caixa()
+    elif menu == "📊 DRE":
+        from modules.dre import tela_dre
+        tela_dre()
     elif menu == "👥 Usuários":
         tela_usuarios()
