@@ -1,6 +1,7 @@
 import streamlit as st
 import pymongo
 from datetime import datetime
+import base64  # <-- Nova importação necessária
 
 @st.cache_resource
 def get_db():
@@ -72,3 +73,12 @@ def carregar_css():
         
         </style>
     """, unsafe_allow_html=True)
+
+# --- NOVA FUNÇÃO PARA IMAGEM DE FUNDO ---
+def get_base64_image(image_path):
+    """Converte uma imagem local em string Base64 para uso no CSS."""
+    try:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except Exception:
+        return None
