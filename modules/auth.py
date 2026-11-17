@@ -33,71 +33,78 @@ def criar_usuarios_iniciais():
         st.toast("Usuários iniciais criados: diego e kellen (senha Diana@164707)", icon="✅")
 
 def tela_login():
-    # --- CSS ESPECÍFICO PARA O CARD DE LOGIN ---
+    # --- CSS CUSTOMIZADO ---
     st.markdown("""
         <style>
-        /* Cria o fundo do card central */
-        div[data-testid="stVerticalBlock"] > div:has(div.stForm) {
-            background-color: #FFFFFF;
-            padding: 2.5rem 2rem;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-            border: 1px solid #F0EBE1;
-            max-width: 450px;
-            margin: 0 auto;
-        }
-        
-        /* Ajusta a logo dentro do card */
-        div[data-testid="stVerticalBlock"] > div:has(div.stForm) img {
-            display: block;
-            margin: 0 auto 1.5rem auto;
-            max-width: 180px !important;
-        }
+            /* Esconde o menu e footer do Streamlit para ficar limpo */
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
 
-        /* Título "Acesso ao Sistema" estilizado */
-        h3 {
-            text-align: center;
-            font-family: 'Cormorant Garamond', serif;
-            color: #2C2C2C;
-            margin-bottom: 1.5rem !important;
-        }
+            /* Fundo da página levemente cinza para destacar o card branco */
+            .stApp {
+                background-color: #fcfcfc;
+            }
 
-        /* Ajusta os inputs para ficarem mais elegantes */
-        .stTextInput input {
-            border-radius: 8px;
-            border: 1px solid #E0D8C8;
-            padding: 10px 15px;
-        }
-        .stTextInput input:focus {
-            border-color: #8A8A8A;
-            box-shadow: 0 0 0 1px #8A8A8A;
-        }
-        
-        /* Botão de entrar */
-        .stButton>button {
-            background-color: #2C2C2C;
-            color: #FFFFFF;
-            border-radius: 8px;
-            padding: 10px;
-            font-weight: 600;
-            letter-spacing: 1px;
-            margin-top: 1rem;
-        }
-        .stButton>button:hover {
-            background-color: #4A4A4A;
-            color: #FFFFFF;
-        }
+            /* ESTILO DO CARD DE LOGIN */
+            div[data-testid="stForm"] {
+                background-color: #FFFFFF;
+                padding: 2.5rem 2rem;
+                border-radius: 15px;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+                border: 1px solid #EAEAEA;
+                max-width: 400px; /* Largura máxima do card */
+                margin: 0 auto;
+            }
+
+            /* ESTILO DOS INPUTS */
+            .stTextInput > div > div > input {
+                border-radius: 8px;
+                border: 1px solid #E0D8C8;
+                padding: 12px 15px;
+                font-size: 16px;
+            }
+            .stTextInput > div > div > input:focus {
+                border-color: #2C2C2C;
+                box-shadow: 0 0 0 1px #2C2C2C;
+            }
+
+            /* ESTILO DO BOTÃO */
+            .stButton > button {
+                width: 100%;
+                background-color: #2C2C2C;
+                color: #FFFFFF;
+                border-radius: 8px;
+                padding: 10px;
+                font-weight: 600;
+                letter-spacing: 1px;
+                border: none;
+                transition: 0.3s;
+            }
+            .stButton > button:hover {
+                background-color: #4A4A4A;
+                color: #FFFFFF;
+            }
+            
+            /* Título */
+            h3 {
+                text-align: center;
+                font-family: 'Cormorant Garamond', serif;
+                color: #2C2C2C;
+                margin-bottom: 1.5rem !important;
+            }
         </style>
     """, unsafe_allow_html=True)
 
-    # --- CONTEÚDO DO CARD ---
-    # Colunas para centralizar o formulário
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
+    # --- LAYOUT ---
+    # Cria 3 colunas para centralizar o formulário (a do meio é a do login)
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+
     with col2:
         # Logo (Tenta carregar a imagem, senão usa o texto)
         try:
-            st.image("logo.png", use_column_width=False)
+            # Ajuste o width conforme o tamanho da sua logo
+            st.image("logo.png", width=180) 
         except:
             st.markdown("""
                 <h1 style='text-align: center; font-family: "Cormorant Garamond", serif; font-size: 2.5rem; margin-bottom: 0; padding-bottom: 0; color: #2C2C2C;'>
@@ -110,9 +117,14 @@ def tela_login():
 
         st.subheader("Acesso ao Sistema")
 
+        # O formulário (O CSS acima aplica o estilo de "card" a este form)
         with st.form("login_form"):
-            usuario_input = st.text_input("Usuário").strip().lower()
-            senha_input = st.text_input("Senha", type="password")
+            usuario_input = st.text_input("Usuário", placeholder="Digite seu usuário").strip().lower()
+            senha_input = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+            
+            # Espaçamento
+            st.write("")
+            
             botao_login = st.form_submit_button("Entrar", use_container_width=True)
 
             if botao_login:
