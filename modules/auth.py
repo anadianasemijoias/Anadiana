@@ -33,43 +33,62 @@ def criar_usuarios_iniciais():
         st.toast("Usuários iniciais criados: diego e kellen (senha Diana@164707)", icon="✅")
 
 def tela_login():
-    # --- CSS CUSTOMIZADO ---
+    # --- CSS CUSTOMIZADO COM FUNDO DE IMAGEM ---
     st.markdown("""
         <style>
-            /* Esconde o menu e footer do Streamlit para ficar limpo */
+            /* Esconde o menu, footer e header do Streamlit */
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
 
-            /* Fundo da página levemente cinza para destacar o card branco */
+            /* --- FUNDO COM IMAGEM --- */
             .stApp {
-                background-color: #fcfcfc;
+                /* Substitua a URL abaixo pelo caminho da sua imagem local, ex: url("fundo_login.jpg") */
+                background-image: url("logo.png");
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
             }
 
-            /* ESTILO DO CARD DE LOGIN */
+            /* --- OVERLAY ESCURO PARA DESTACAR O CARD --- */
+            .stApp::before {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.45); /* Ajuste a opacidade conforme a imagem */
+                z-index: -1;
+            }
+
+            /* --- ESTILO DO CARD DE LOGIN --- */
             div[data-testid="stForm"] {
-                background-color: #FFFFFF;
+                background-color: rgba(255, 255, 255, 0.95); /* Branco levemente transparente */
                 padding: 2.5rem 2rem;
                 border-radius: 15px;
-                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
                 border: 1px solid #EAEAEA;
-                max-width: 400px; /* Largura máxima do card */
+                max-width: 400px;
                 margin: 0 auto;
+                backdrop-filter: blur(5px); /* Efeito de vidro fosco */
             }
 
-            /* ESTILO DOS INPUTS */
+            /* --- ESTILO DOS INPUTS --- */
             .stTextInput > div > div > input {
                 border-radius: 8px;
                 border: 1px solid #E0D8C8;
                 padding: 12px 15px;
                 font-size: 16px;
+                background-color: #FFFFFF;
             }
             .stTextInput > div > div > input:focus {
                 border-color: #2C2C2C;
                 box-shadow: 0 0 0 1px #2C2C2C;
             }
 
-            /* ESTILO DO BOTÃO */
+            /* --- ESTILO DO BOTÃO --- */
             .stButton > button {
                 width: 100%;
                 background-color: #2C2C2C;
@@ -86,7 +105,7 @@ def tela_login():
                 color: #FFFFFF;
             }
             
-            /* Título */
+            /* --- TÍTULO --- */
             h3 {
                 text-align: center;
                 font-family: 'Cormorant Garamond', serif;
@@ -96,7 +115,7 @@ def tela_login():
         </style>
     """, unsafe_allow_html=True)
 
-    # --- LAYOUT ---
+    # --- LAYOUT DA TELA ---
     # Cria 3 colunas para centralizar o formulário (a do meio é a do login)
     col1, col2, col3 = st.columns([1, 1.2, 1])
 
@@ -104,7 +123,7 @@ def tela_login():
         # Logo (Tenta carregar a imagem, senão usa o texto)
         try:
             # Ajuste o width conforme o tamanho da sua logo
-            st.image("logo.png", width=180) 
+            st.image("logo.png", width=180)
         except:
             st.markdown("""
                 <h1 style='text-align: center; font-family: "Cormorant Garamond", serif; font-size: 2.5rem; margin-bottom: 0; padding-bottom: 0; color: #2C2C2C;'>
@@ -117,7 +136,7 @@ def tela_login():
 
         st.subheader("Acesso ao Sistema")
 
-        # O formulário (O CSS acima aplica o estilo de "card" a este form)
+        # O formulário (o CSS acima aplica o estilo de "card" a este form)
         with st.form("login_form"):
             usuario_input = st.text_input("Usuário", placeholder="Digite seu usuário").strip().lower()
             senha_input = st.text_input("Senha", type="password", placeholder="Digite sua senha")
