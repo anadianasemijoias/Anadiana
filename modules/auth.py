@@ -1,6 +1,6 @@
 import streamlit as st
 from passlib.hash import bcrypt
-from modules.utils import get_db
+from modules.utils import get_db, get_base64_image  # Importando a nova função
 
 def hash_senha(senha):
     return bcrypt.hash(senha)
@@ -33,85 +33,89 @@ def criar_usuarios_iniciais():
         st.toast("Usuários iniciais criados: diego e kellen (senha Diana@164707)", icon="✅")
 
 def tela_login():
-    # --- CSS CUSTOMIZADO COM FUNDO DE IMAGEM ---
-    st.markdown("""
+    # 1. Converte a logo.png para Base64 para usar no fundo
+    img_base64 = get_base64_image("logo.png")
+    
+    # 2. Define o CSS do fundo (se a imagem existir, usa ela; senão, usa uma cor escura)
+    if img_base64:
+        bg_css = f"background-image: url('data:image/png;base64,{img_base64}'); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed;"
+    else:
+        bg_css = "background-color: #2C2C2C;"
+
+    # --- CSS ESPECÍFICO PARA A TELA DE LOGIN ---
+    st.markdown(f"""
         <style>
-            /* Esconde o menu, footer e header do Streamlit */
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
+            /* Esconde o menu e footer */
+            #MainMenu {{visibility: hidden;}}
+            footer {{visibility: hidden;}}
+            header {{visibility: hidden;}}
 
             /* --- FUNDO COM IMAGEM --- */
-            .stApp {
-                /* Substitua a URL abaixo pelo caminho da sua imagem local, ex: url("fundo_login.jpg") */
-                background-image: url("logo.png");
-                background-size: cover;
-                background-position: center;
-                background-repeat: no-repeat;
-                background-attachment: fixed;
-            }
+            .stApp {{
+                {bg_css}
+            }}
 
-            /* --- OVERLAY ESCURO PARA DESTACAR O CARD --- */
-            .stApp::before {
+            /* --- OVERLAY ESCURO (Ajustado para 0.7 devido ao fundo preto da logo) --- */
+            .stApp::before {{
                 content: "";
                 position: absolute;
                 top: 0;
                 left: 0;
                 width: 100%;
                 height: 100%;
-                background-color: rgba(0, 0, 0, 0.45); /* Ajuste a opacidade conforme a imagem */
+                background-color: rgba(0, 0, 0, 0.7); 
                 z-index: -1;
-            }
+            }}
 
             /* --- ESTILO DO CARD DE LOGIN --- */
-            div[data-testid="stForm"] {
-                background-color: rgba(255, 255, 255, 0.95); /* Branco levemente transparente */
-                padding: 2.5rem 2rem;
-                border-radius: 15px;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-                border: 1px solid #EAEAEA;
-                max-width: 400px;
-                margin: 0 auto;
-                backdrop-filter: blur(5px); /* Efeito de vidro fosco */
-            }
+            /* Forçando o estilo com !important para evitar conflitos do Streamlit */
+            div[data-testid="stForm"], .stForm {{
+                background-color: #FFFFFF !important;
+                padding: 2.5rem 2rem !important;
+                border-radius: 15px !important;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid #EAEAEA !important;
+                max-width: 400px !important;
+                margin: 0 auto !important;
+            }}
 
             /* --- ESTILO DOS INPUTS --- */
-            .stTextInput > div > div > input {
-                border-radius: 8px;
-                border: 1px solid #E0D8C8;
-                padding: 12px 15px;
-                font-size: 16px;
-                background-color: #FFFFFF;
-            }
-            .stTextInput > div > div > input:focus {
-                border-color: #2C2C2C;
-                box-shadow: 0 0 0 1px #2C2C2C;
-            }
+            .stTextInput > div > div > input {{
+                border-radius: 8px !important;
+                border: 1px solid #E0D8C8 !important;
+                padding: 12px 15px !important;
+                font-size: 16px !important;
+                background-color: #FFFFFF !important;
+            }}
+            .stTextInput > div > div > input:focus {{
+                border-color: #2C2C2C !important;
+                box-shadow: 0 0 0 1px #2C2C2C !important;
+            }}
 
             /* --- ESTILO DO BOTÃO --- */
-            .stButton > button {
-                width: 100%;
-                background-color: #2C2C2C;
-                color: #FFFFFF;
-                border-radius: 8px;
-                padding: 10px;
-                font-weight: 600;
-                letter-spacing: 1px;
-                border: none;
-                transition: 0.3s;
-            }
-            .stButton > button:hover {
-                background-color: #4A4A4A;
-                color: #FFFFFF;
-            }
+            .stButton > button {{
+                width: 100% !important;
+                background-color: #2C2C2C !important;
+                color: #FFFFFF !important;
+                border-radius: 8px !important;
+                padding: 10px !important;
+                font-weight: 600 !important;
+                letter-spacing: 1px !important;
+                border: none !important;
+                transition: 0.3s !important;
+            }}
+            .stButton > button:hover {{
+                background-color: #4A4A4A !important;
+                color: #FFFFFF !important;
+            }}
             
             /* --- TÍTULO --- */
-            h3 {
-                text-align: center;
-                font-family: 'Cormorant Garamond', serif;
-                color: #2C2C2C;
+            h3 {{
+                text-align: center !important;
+                font-family: 'Cormorant Garamond', serif !important;
+                color: #2C2C2C !important;
                 margin-bottom: 1.5rem !important;
-            }
+            }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -120,19 +124,11 @@ def tela_login():
     col1, col2, col3 = st.columns([1, 1.2, 1])
 
     with col2:
-        # Logo (Tenta carregar a imagem, senão usa o texto)
+        # Logo no topo do card (Tenta carregar a imagem, senão usa o texto)
         try:
-            # Ajuste o width conforme o tamanho da sua logo
-            st.image("logo.png", width=180)
+            st.image("logo.png", width=150)
         except:
-            st.markdown("""
-                <h1 style='text-align: center; font-family: "Cormorant Garamond", serif; font-size: 2.5rem; margin-bottom: 0; padding-bottom: 0; color: #2C2C2C;'>
-                    ANADIANA
-                </h1>
-                <p style='text-align: center; font-family: "Lato", sans-serif; font-size: 0.8rem; letter-spacing: 3px; color: #8A8A8A; text-transform: uppercase; margin-top: 5px; margin-bottom: 2rem;'>
-                    Semijoias & Acessórios
-                </p>
-            """, unsafe_allow_html=True)
+            st.markdown("<h1 style='text-align: center; color: #2C2C2C;'>ANADIANA</h1>", unsafe_allow_html=True)
 
         st.subheader("Acesso ao Sistema")
 
