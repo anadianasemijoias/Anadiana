@@ -1,6 +1,6 @@
 import streamlit as st
 from passlib.hash import bcrypt
-from modules.utils import get_db, get_base64_image  # Importando a nova função
+from modules.utils import get_db, get_base64_image
 
 def hash_senha(senha):
     return bcrypt.hash(senha)
@@ -36,11 +36,11 @@ def tela_login():
     # 1. Converte a logo.png para Base64 para usar no fundo
     img_base64 = get_base64_image("logo.png")
     
-    # 2. Define o CSS do fundo (se a imagem existir, usa ela; senão, usa uma cor escura)
+    # 2. Define o CSS do fundo
     if img_base64:
         bg_css = f"background-image: url('data:image/png;base64,{img_base64}'); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed;"
     else:
-        bg_css = "background-color: #2C2C2C;"
+        bg_css = "background-color: #1A1A1A;" # Fallback escuro
 
     # --- CSS ESPECÍFICO PARA A TELA DE LOGIN ---
     st.markdown(f"""
@@ -55,7 +55,7 @@ def tela_login():
                 {bg_css}
             }}
 
-            /* --- OVERLAY ESCURO (Ajustado para 0.7 devido ao fundo preto da logo) --- */
+            /* --- OVERLAY ESCURO --- */
             .stApp::before {{
                 content: "";
                 position: absolute;
@@ -68,7 +68,6 @@ def tela_login():
             }}
 
             /* --- ESTILO DO CARD DE LOGIN --- */
-            /* Forçando o estilo com !important para evitar conflitos do Streamlit */
             div[data-testid="stForm"], .stForm {{
                 background-color: #FFFFFF !important;
                 padding: 2.5rem 2rem !important;
@@ -115,6 +114,7 @@ def tela_login():
                 font-family: 'Cormorant Garamond', serif !important;
                 color: #2C2C2C !important;
                 margin-bottom: 1.5rem !important;
+                margin-top: 0 !important; /* Remove margem superior extra */
             }}
         </style>
     """, unsafe_allow_html=True)
@@ -124,15 +124,10 @@ def tela_login():
     col1, col2, col3 = st.columns([1, 1.2, 1])
 
     with col2:
-        # Logo no topo do card (Tenta carregar a imagem, senão usa o texto)
-        try:
-            st.image("logo.png", width=150)
-        except:
-            st.markdown("<h1 style='text-align: center; color: #2C2C2C;'>ANADIANA</h1>", unsafe_allow_html=True)
-
+        # Título centralizado acima do card
         st.subheader("Acesso ao Sistema")
 
-        # O formulário (o CSS acima aplica o estilo de "card" a este form)
+        # O formulário
         with st.form("login_form"):
             usuario_input = st.text_input("Usuário", placeholder="Digite seu usuário").strip().lower()
             senha_input = st.text_input("Senha", type="password", placeholder="Digite sua senha")
