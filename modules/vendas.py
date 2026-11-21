@@ -9,7 +9,6 @@ from modules.config import carregar_parametros
 # HELPERS
 # ---------------------------------------------------------
 def _proximo_numero_venda(db):
-    """Gera o próximo número de venda no formato V2026-0001."""
     ano = datetime.now().year
     prefixo = f"V{ano}-"
     ultima = db["vendas"].find_one(
@@ -30,12 +29,12 @@ def _carregar_produtos(db):
     return {p["sku"]: p for p in db["produtos"].find({})}
 
 
-def _calcular_totais_venda(itens, params):
+def _calcular_totais_venda(itens, params, frete_pago=0.0):
     total_bruto = sum(i["preco_unitario"] * i["quantidade"] for i in itens)
     custo_total = sum(i["custo_unitario"] * i["quantidade"] for i in itens)
     aliquota = params.get("aliquota_imposto", 0.0)
     imposto = total_bruto * aliquota
-    return total_bruto, custo_total, imposto
+    return total_bruto, custo_total, imposto, frete_pago
 
 
 def _baixar_estoque(db, itens, numero_venda):
@@ -68,14 +67,34 @@ def _repor_estoque(db, itens, numero_venda):
         })
 
 
+def _gravar_itens_venda(db, itens, numero_venda, data_venda):
+    """Grava cada item na coleção itens_venda (usado por produtos.py e painel.py)."""
+    docs = []
+    for i in itens:
+        docs.append({
+            "numero_venda": numero_venda,
+            "data_venda": data_venda,
+            "sku": i["sku"],
+            "nome": i["nome"],
+            "quantidade": i["quantidade"],
+            "preco_unitario": i["preco_unitario"],
+            "custo_unitario": i["custo_unitario"],
+            "subtotal": i["preco_unitario"] * i["quantidade"],
+            "custo_total": i["custo_unitario"] * i["quantidade"],
+            "criado_em": datetime.now(),
+        })
+    if docs:
+        db["itens_venda"].insert_many(docs)
+
+
+def _apagar_itens_venda(db, numero_venda):
+    db["itens_venda"].delete_many({"numero_venda": numero_venda})
+
+
 # ---------------------------------------------------------
 # RECÁLCULO DA VENDA (usado pelo módulo de Recebimentos)
 # ---------------------------------------------------------
 def _recalcular_venda(db, venda_id):
-    """
-    Recalcula saldo_a_receber, atraso e situação da venda
-    com base nos recebimentos lançados.
-    """
     venda = db["vendas"].find_one({"_id": ObjectId(venda_id)})
     if not venda:
         return
@@ -91,7 +110,6 @@ def _recalcular_venda(db, venda_id):
     if saldo < 0:
         saldo = 0.0
 
-    # Situação
     if saldo <= 0.005:
         situacao = "Quitada"
     elif total_recebido > 0:
@@ -99,11 +117,9 @@ def _recalcular_venda(db, venda_id):
     else:
         situacao = "Em aberto"
 
-    # Atraso: alguma parcela vencida e não paga?
     hoje = date.today()
     primeiro = venda.get("primeiro_vencimento")
     num_parcelas = int(venda.get("num_parcelas", 0))
-    valor_parcela = float(venda.get("valor_parcela", 0))
     atraso = False
     parcelas_vencidas = 0
 
@@ -243,31 +259,35 @@ def _form_nova_venda(db, params):
             use_container_width=True,
             hide_index=True,
         )
-        colA, colB = st.columns([1, 1])
+        colA, colB, colC = st.columns(3)
         with colA:
             if st.button("🗑️ Limpar carrinho"):
                 st.session_state["carrinho_venda"] = []
                 st.rerun()
         with colB:
             desconto = st.number_input("Desconto (R$)", min_value=0.0, value=0.0, step=1.0, format="%.2f")
+        with colC:
+            frete_pago = st.number_input("Frete pago (R$)", min_value=0.0, value=0.0, step=1.0, format="%.2f")
     else:
         desconto = 0.0
+        frete_pago = 0.0
         st.info("Nenhum item adicionado ainda.")
 
     st.divider()
 
     # ---------------- Resumo ----------------
     if carrinho:
-        total_bruto, custo_total, imposto = _calcular_totais_venda(carrinho, params)
+        total_bruto, custo_pecas, imposto_estimado, frete_pago = _calcular_totais_venda(
+            carrinho, params, frete_pago
+        )
         taxa_pgto = params.get("taxas_pagamento", {}).get(forma_pgto, 0.0)
         taxa_valor = total_bruto * taxa_pgto
         embalagem = params.get("custo_embalagem", 0.0)
-        total_venda = total_bruto - desconto  # valor efetivo da venda
-        total_liquido = total_venda - imposto - taxa_valor - embalagem
-        lucro_contrib = total_liquido - custo_total
+        total_venda = total_bruto - desconto
+        total_liquido = total_venda - imposto_estimado - taxa_valor - embalagem - frete_pago
+        lucro_contrib = total_liquido - custo_pecas
         margem = (lucro_contrib / total_bruto) if total_bruto else 0.0
 
-        # Financiamento (crediário)
         entrada = min(entrada, total_venda)
         valor_financiado = max(total_venda - entrada, 0.0)
         valor_parcela = round(valor_financiado / num_parcelas, 2) if num_parcelas > 0 else 0.0
@@ -287,9 +307,10 @@ def _form_nova_venda(db, params):
 
         if st.button("✅ Finalizar venda", type="primary"):
             numero = _proximo_numero_venda(db)
+            data_dt = datetime.combine(data_venda, datetime.min.time())
             venda_doc = {
                 "numero_venda": numero,
-                "data_venda": datetime.combine(data_venda, datetime.min.time()),
+                "data_venda": data_dt,
                 "cliente": cliente,
                 "canal": canal,
                 "forma_pagamento": forma_pgto,
@@ -300,10 +321,14 @@ def _form_nova_venda(db, params):
                 "total_venda": total_venda,
                 "total_bruto": total_bruto,
                 "total_liquido": total_liquido,
-                "custo_total": custo_total,
-                "imposto": imposto,
+                # Nomes compatíveis com DRE
+                "custo_pecas": custo_pecas,
+                "custo_total": custo_pecas,          # legado
+                "imposto_estimado": imposto_estimado,
+                "imposto": imposto_estimado,          # legado
                 "taxa_pagamento": taxa_valor,
                 "embalagem": embalagem,
+                "frete_pago": frete_pago,
                 "lucro_contribuicao": lucro_contrib,
                 "margem": margem,
                 "entrada": entrada,
@@ -320,6 +345,7 @@ def _form_nova_venda(db, params):
             }
             db["vendas"].insert_one(venda_doc)
             _baixar_estoque(db, carrinho, numero)
+            _gravar_itens_venda(db, carrinho, numero, data_dt)  # ← coleção itens_venda
             st.session_state["carrinho_venda"] = []
             st.success(f"Venda **{numero}** registrada com sucesso!")
             st.rerun()
@@ -395,5 +421,6 @@ def _lista_vendas(db):
                     }},
                 )
                 _repor_estoque(db, v.get("itens", []), v.get("numero_venda", ""))
+                _apagar_itens_venda(db, v.get("numero_venda", ""))  # ← remove da itens_venda
                 st.success("Venda cancelada e estoque devolvido.")
                 st.rerun()
