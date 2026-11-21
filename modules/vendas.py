@@ -4,6 +4,7 @@ from bson import ObjectId
 from modules.utils import get_db, brl, pct
 from modules.config import carregar_parametros
 
+
 # ---------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------
@@ -12,12 +13,12 @@ def _proximo_numero_venda(db):
     ano = datetime.now().year
     prefixo = f"V{ano}-"
     ultima = db["vendas"].find_one(
-        {"numero": {"$regex": f"^{prefixo}"}},
-        sort=[("numero", -1)],
+        {"numero_venda": {"$regex": f"^{prefixo}"}},
+        sort=[("numero_venda", -1)],
     )
     if ultima:
         try:
-            seq = int(ultima["numero"].split("-")[1]) + 1
+            seq = int(ultima["numero_venda"].split("-")[1]) + 1
         except (IndexError, ValueError):
             seq = 1
     else:
@@ -26,12 +27,10 @@ def _proximo_numero_venda(db):
 
 
 def _carregar_produtos(db):
-    """Retorna dict {sku: produto} para lookup rápido."""
     return {p["sku"]: p for p in db["produtos"].find({})}
 
 
 def _calcular_totais_venda(itens, params):
-    """Calcula totais da venda a partir dos itens e dos parâmetros."""
     total_bruto = sum(i["preco_unitario"] * i["quantidade"] for i in itens)
     custo_total = sum(i["custo_unitario"] * i["quantidade"] for i in itens)
     aliquota = params.get("aliquota_imposto", 0.0)
@@ -40,13 +39,11 @@ def _calcular_totais_venda(itens, params):
 
 
 def _baixar_estoque(db, itens, numero_venda):
-    """Baixa estoque dos produtos vendidos."""
     for item in itens:
         db["produtos"].update_one(
             {"sku": item["sku"]},
             {"$inc": {"estoque_atual": -item["quantidade"]}},
         )
-        # Registra movimento de saída (opcional, para rastreio)
         db["movimentos_estoque"].insert_one({
             "data": datetime.now(),
             "sku": item["sku"],
@@ -57,7 +54,6 @@ def _baixar_estoque(db, itens, numero_venda):
 
 
 def _repor_estoque(db, itens, numero_venda):
-    """Devolve estoque (usado em cancelamento de venda)."""
     for item in itens:
         db["produtos"].update_one(
             {"sku": item["sku"]},
@@ -73,6 +69,72 @@ def _repor_estoque(db, itens, numero_venda):
 
 
 # ---------------------------------------------------------
+# RECÁLCULO DA VENDA (usado pelo módulo de Recebimentos)
+# ---------------------------------------------------------
+def _recalcular_venda(db, venda_id):
+    """
+    Recalcula saldo_a_receber, atraso e situação da venda
+    com base nos recebimentos lançados.
+    """
+    venda = db["vendas"].find_one({"_id": ObjectId(venda_id)})
+    if not venda:
+        return
+
+    total = float(venda.get("total_venda", 0))
+    entrada = float(venda.get("entrada", 0))
+    financiado = max(total - entrada, 0.0)
+
+    recebidos = list(db["recebimentos"].find({"numero_venda": venda["numero_venda"]}))
+    total_recebido = sum(float(r.get("valor", 0)) for r in recebidos)
+
+    saldo = round(financiado - total_recebido, 2)
+    if saldo < 0:
+        saldo = 0.0
+
+    # Situação
+    if saldo <= 0.005:
+        situacao = "Quitada"
+    elif total_recebido > 0:
+        situacao = "Parcialmente recebida"
+    else:
+        situacao = "Em aberto"
+
+    # Atraso: alguma parcela vencida e não paga?
+    hoje = date.today()
+    primeiro = venda.get("primeiro_vencimento")
+    num_parcelas = int(venda.get("num_parcelas", 0))
+    valor_parcela = float(venda.get("valor_parcela", 0))
+    atraso = False
+    parcelas_vencidas = 0
+
+    if primeiro and num_parcelas > 0 and saldo > 0.005:
+        venc_base = primeiro.date() if isinstance(primeiro, datetime) else primeiro
+        recebidas_nums = {int(r.get("numero_parcela", 0)) for r in recebidos}
+        for i in range(1, num_parcelas + 1):
+            if i in recebidas_nums:
+                continue
+            ano = venc_base.year + (venc_base.month - 1 + (i - 1)) // 12
+            mes = (venc_base.month - 1 + (i - 1)) % 12 + 1
+            dia = min(venc_base.day, 28)
+            venc = date(ano, mes, dia)
+            if venc < hoje:
+                atraso = True
+                parcelas_vencidas += 1
+
+    db["vendas"].update_one(
+        {"_id": ObjectId(venda_id)},
+        {"$set": {
+            "saldo_a_receber": saldo,
+            "total_recebido": round(total_recebido, 2),
+            "situacao": situacao,
+            "em_atraso": atraso,
+            "parcelas_vencidas": parcelas_vencidas,
+            "atualizado_em": datetime.now(),
+        }},
+    )
+
+
+# ---------------------------------------------------------
 # TELA PRINCIPAL
 # ---------------------------------------------------------
 def tela_vendas():
@@ -81,16 +143,8 @@ def tela_vendas():
     params = carregar_parametros()
 
     aba_nova, aba_lista = st.tabs(["➕ Nova Venda", "📋 Vendas Registradas"])
-
-    # -----------------------------------------------------
-    # ABA 1 — NOVA VENDA
-    # -----------------------------------------------------
     with aba_nova:
         _form_nova_venda(db, params)
-
-    # -----------------------------------------------------
-    # ABA 2 — LISTAGEM / CANCELAMENTO
-    # -----------------------------------------------------
     with aba_lista:
         _lista_vendas(db)
 
@@ -104,7 +158,6 @@ def _form_nova_venda(db, params):
         st.warning("Cadastre produtos antes de registrar vendas.")
         return
 
-    # Inicializa carrinho na sessão
     if "carrinho_venda" not in st.session_state:
         st.session_state["carrinho_venda"] = []
 
@@ -120,16 +173,20 @@ def _form_nova_venda(db, params):
             ["Loja física", "Instagram", "WhatsApp", "Site", "Outro"],
         )
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         forma_pgto = st.selectbox(
             "Forma de pagamento",
             list(params.get("taxas_pagamento", {}).keys()) or ["Pix"],
         )
     with col2:
-        parcelas = st.number_input("Nº de parcelas", min_value=1, max_value=24, value=1)
+        num_parcelas = st.number_input("Nº de parcelas", min_value=1, max_value=24, value=1)
     with col3:
-        primeiro_venc = st.date_input("1º vencimento (crediário)", value=date.today())
+        primeiro_venc = st.date_input("1º vencimento", value=date.today())
+    with col4:
+        entrada = st.number_input(
+            "Entrada (R$)", min_value=0.0, value=0.0, step=10.0, format="%.2f"
+        )
 
     st.divider()
 
@@ -170,7 +227,6 @@ def _form_nova_venda(db, params):
                 })
                 st.success(f"{qtd}x {sku_sel} adicionado.")
 
-    # Tabela do carrinho
     carrinho = st.session_state["carrinho_venda"]
     if carrinho:
         st.dataframe(
@@ -187,7 +243,6 @@ def _form_nova_venda(db, params):
             use_container_width=True,
             hide_index=True,
         )
-
         colA, colB = st.columns([1, 1])
         with colA:
             if st.button("🗑️ Limpar carrinho"):
@@ -207,36 +262,42 @@ def _form_nova_venda(db, params):
         taxa_pgto = params.get("taxas_pagamento", {}).get(forma_pgto, 0.0)
         taxa_valor = total_bruto * taxa_pgto
         embalagem = params.get("custo_embalagem", 0.0)
-        total_liquido = total_bruto - desconto - imposto - taxa_valor - embalagem
+        total_venda = total_bruto - desconto  # valor efetivo da venda
+        total_liquido = total_venda - imposto - taxa_valor - embalagem
         lucro_contrib = total_liquido - custo_total
         margem = (lucro_contrib / total_bruto) if total_bruto else 0.0
+
+        # Financiamento (crediário)
+        entrada = min(entrada, total_venda)
+        valor_financiado = max(total_venda - entrada, 0.0)
+        valor_parcela = round(valor_financiado / num_parcelas, 2) if num_parcelas > 0 else 0.0
 
         st.subheader("📊 Resumo da venda")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total bruto", brl(total_bruto))
         c2.metric("Desconto", brl(desconto))
-        c3.metric("Imposto", brl(imposto))
-        c4.metric("Taxa pgto", brl(taxa_valor))
+        c3.metric("Total da venda", brl(total_venda))
+        c4.metric("Entrada", brl(entrada))
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Embalagem", brl(embalagem))
-        c2.metric("Custo peças", brl(custo_total))
+        c1.metric("Financiado", brl(valor_financiado))
+        c2.metric("Parcela", brl(valor_parcela))
         c3.metric("Lucro contrib.", brl(lucro_contrib))
         c4.metric("Margem", pct(margem))
 
-        # ---------------- Finalizar ----------------
         if st.button("✅ Finalizar venda", type="primary"):
             numero = _proximo_numero_venda(db)
             venda_doc = {
-                "numero": numero,
-                "data": datetime.combine(data_venda, datetime.min.time()),
+                "numero_venda": numero,
+                "data_venda": datetime.combine(data_venda, datetime.min.time()),
                 "cliente": cliente,
                 "canal": canal,
                 "forma_pagamento": forma_pgto,
-                "parcelas": int(parcelas),
+                "num_parcelas": int(num_parcelas),
                 "primeiro_vencimento": datetime.combine(primeiro_venc, datetime.min.time()),
                 "status": "Concluída",
                 "desconto": desconto,
+                "total_venda": total_venda,
                 "total_bruto": total_bruto,
                 "total_liquido": total_liquido,
                 "custo_total": custo_total,
@@ -245,6 +306,14 @@ def _form_nova_venda(db, params):
                 "embalagem": embalagem,
                 "lucro_contribuicao": lucro_contrib,
                 "margem": margem,
+                "entrada": entrada,
+                "valor_financiado": valor_financiado,
+                "valor_parcela": valor_parcela,
+                "saldo_a_receber": valor_financiado,
+                "total_recebido": 0.0,
+                "situacao": "Em aberto" if valor_financiado > 0 else "Quitada",
+                "em_atraso": False,
+                "parcelas_vencidas": 0,
                 "itens": carrinho,
                 "criado_em": datetime.now(),
                 "criado_por": st.session_state.get("usuario_logado", ""),
@@ -260,7 +329,7 @@ def _form_nova_venda(db, params):
 # LISTAGEM DE VENDAS
 # ---------------------------------------------------------
 def _lista_vendas(db):
-    vendas = list(db["vendas"].find({}).sort("data", -1))
+    vendas = list(db["vendas"].find({}).sort("data_venda", -1))
     if not vendas:
         st.info("Nenhuma venda registrada.")
         return
@@ -268,14 +337,14 @@ def _lista_vendas(db):
     st.dataframe(
         [
             {
-                "Nº": v["numero"],
-                "Data": v["data"].strftime("%d/%m/%Y"),
+                "Nº": v.get("numero_venda", ""),
+                "Data": v["data_venda"].strftime("%d/%m/%Y") if v.get("data_venda") else "",
                 "Cliente": v.get("cliente", ""),
                 "Canal": v.get("canal", ""),
                 "Forma": v.get("forma_pagamento", ""),
-                "Total": brl(v.get("total_bruto", 0)),
-                "Lucro": brl(v.get("lucro_contribuicao", 0)),
-                "Margem": pct(v.get("margem", 0)),
+                "Total": brl(v.get("total_venda", 0)),
+                "Saldo": brl(v.get("saldo_a_receber", 0)),
+                "Situação": v.get("situacao", ""),
                 "Status": v.get("status", ""),
             }
             for v in vendas
@@ -284,17 +353,19 @@ def _lista_vendas(db):
         hide_index=True,
     )
 
-    # Detalhe + cancelamento
-    opcoes = {f"{v['numero']} — {v.get('cliente','')}": v for v in vendas}
+    opcoes = {f"{v.get('numero_venda','')} — {v.get('cliente','')}": v for v in vendas}
     escolha = st.selectbox("Ver detalhes / cancelar", ["—"] + list(opcoes.keys()))
 
     if escolha != "—":
         v = opcoes[escolha]
-        st.subheader(f"Venda {v['numero']}")
+        st.subheader(f"Venda {v.get('numero_venda','')}")
         st.write(f"**Cliente:** {v.get('cliente','')}")
-        st.write(f"**Data:** {v['data'].strftime('%d/%m/%Y')}")
-        st.write(f"**Forma:** {v.get('forma_pagamento','')} — {v.get('parcelas',1)}x")
-        st.write(f"**Status:** {v.get('status','')}")
+        st.write(f"**Data:** {v['data_venda'].strftime('%d/%m/%Y') if v.get('data_venda') else ''}")
+        st.write(f"**Forma:** {v.get('forma_pagamento','')} — {v.get('num_parcelas',1)}x")
+        st.write(f"**Total:** {brl(v.get('total_venda',0))} · "
+                 f"**Entrada:** {brl(v.get('entrada',0))} · "
+                 f"**Saldo:** {brl(v.get('saldo_a_receber',0))}")
+        st.write(f"**Situação:** {v.get('situacao','')} · **Status:** {v.get('status','')}")
 
         st.markdown("**Itens:**")
         st.dataframe(
@@ -316,8 +387,13 @@ def _lista_vendas(db):
             if st.button("❌ Cancelar venda (devolve estoque)"):
                 db["vendas"].update_one(
                     {"_id": v["_id"]},
-                    {"$set": {"status": "Cancelada", "cancelado_em": datetime.now()}},
+                    {"$set": {
+                        "status": "Cancelada",
+                        "situacao": "Cancelada",
+                        "saldo_a_receber": 0.0,
+                        "cancelado_em": datetime.now(),
+                    }},
                 )
-                _repor_estoque(db, v.get("itens", []), v["numero"])
+                _repor_estoque(db, v.get("itens", []), v.get("numero_venda", ""))
                 st.success("Venda cancelada e estoque devolvido.")
                 st.rerun()
