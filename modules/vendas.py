@@ -29,46 +29,36 @@ def _carregar_produtos(db):
     return {p["sku"]: p for p in db["produtos"].find({})}
 
 
+def _estoque_real(db, sku):
+    """Estoque calculado: compras − itens_venda + ajustes (igual a produtos.py e ajustes.py)."""
+    compras = list(db["compras"].aggregate([
+        {"$match": {"sku": sku}},
+        {"$group": {"_id": None, "qtd": {"$sum": "$quantidade"}}},
+    ]))
+    vendas = list(db["itens_venda"].aggregate([
+        {"$match": {"sku": sku}},
+        {"$group": {"_id": None, "qtd": {"$sum": "$quantidade"}}},
+    ]))
+    ajustes = list(db["ajustes"].aggregate([
+        {"$match": {"sku": sku}},
+        {"$group": {"_id": None, "qtd": {"$sum": "$quantidade"}}},
+    ]))
+    qc = compras[0]["qtd"] if compras else 0
+    qv = vendas[0]["qtd"] if vendas else 0
+    qa = ajustes[0]["qtd"] if ajustes else 0
+    return qc - qv + qa
+
+
 def _calcular_totais_venda(itens, params, frete_pago=0.0):
     total_bruto = sum(i["preco_unitario"] * i["quantidade"] for i in itens)
-    custo_total = sum(i["custo_unitario"] * i["quantidade"] for i in itens)
+    custo_pecas = sum(i["custo_unitario"] * i["quantidade"] for i in itens)
     aliquota = params.get("aliquota_imposto", 0.0)
-    imposto = total_bruto * aliquota
-    return total_bruto, custo_total, imposto, frete_pago
-
-
-def _baixar_estoque(db, itens, numero_venda):
-    for item in itens:
-        db["produtos"].update_one(
-            {"sku": item["sku"]},
-            {"$inc": {"estoque_atual": -item["quantidade"]}},
-        )
-        db["movimentos_estoque"].insert_one({
-            "data": datetime.now(),
-            "sku": item["sku"],
-            "tipo": "Venda",
-            "quantidade": -item["quantidade"],
-            "referencia": numero_venda,
-        })
-
-
-def _repor_estoque(db, itens, numero_venda):
-    for item in itens:
-        db["produtos"].update_one(
-            {"sku": item["sku"]},
-            {"$inc": {"estoque_atual": item["quantidade"]}},
-        )
-        db["movimentos_estoque"].insert_one({
-            "data": datetime.now(),
-            "sku": item["sku"],
-            "tipo": "Cancelamento Venda",
-            "quantidade": item["quantidade"],
-            "referencia": numero_venda,
-        })
+    imposto_estimado = total_bruto * aliquota
+    return total_bruto, custo_pecas, imposto_estimado, frete_pago
 
 
 def _gravar_itens_venda(db, itens, numero_venda, data_venda):
-    """Grava cada item na coleção itens_venda (usado por produtos.py e painel.py)."""
+    """Grava cada item na coleção itens_venda (base para produtos.py, ajustes.py e painel.py)."""
     docs = []
     for i in itens:
         docs.append({
@@ -229,11 +219,12 @@ def _form_nova_venda(db, params):
         add = st.form_submit_button("➕ Adicionar item")
 
         if add:
-            prod = produtos[sku_sel]
-            estoque = prod.get("estoque_atual", 0)
+            # Estoque calculado na hora (compras − itens_venda + ajustes)
+            estoque = _estoque_real(db, sku_sel)
             if qtd > estoque:
                 st.error(f"Estoque insuficiente. Disponível: {estoque}.")
             else:
+                prod = produtos[sku_sel]
                 st.session_state["carrinho_venda"].append({
                     "sku": sku_sel,
                     "nome": prod.get("nome", ""),
@@ -321,7 +312,7 @@ def _form_nova_venda(db, params):
                 "total_venda": total_venda,
                 "total_bruto": total_bruto,
                 "total_liquido": total_liquido,
-                # Nomes compatíveis com DRE
+                # Compatível com DRE
                 "custo_pecas": custo_pecas,
                 "custo_total": custo_pecas,          # legado
                 "imposto_estimado": imposto_estimado,
@@ -344,8 +335,7 @@ def _form_nova_venda(db, params):
                 "criado_por": st.session_state.get("usuario_logado", ""),
             }
             db["vendas"].insert_one(venda_doc)
-            _baixar_estoque(db, carrinho, numero)
-            _gravar_itens_venda(db, carrinho, numero, data_dt)  # ← coleção itens_venda
+            _gravar_itens_venda(db, carrinho, numero, data_dt)  # ← base de produtos/ajustes/painel
             st.session_state["carrinho_venda"] = []
             st.success(f"Venda **{numero}** registrada com sucesso!")
             st.rerun()
@@ -420,7 +410,6 @@ def _lista_vendas(db):
                         "cancelado_em": datetime.now(),
                     }},
                 )
-                _repor_estoque(db, v.get("itens", []), v.get("numero_venda", ""))
                 _apagar_itens_venda(db, v.get("numero_venda", ""))  # ← remove da itens_venda
                 st.success("Venda cancelada e estoque devolvido.")
                 st.rerun()
