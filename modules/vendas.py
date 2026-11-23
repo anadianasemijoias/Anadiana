@@ -218,7 +218,6 @@ def _form_nova_venda(db, params):
         add = st.form_submit_button("➕ Adicionar item")
 
         if add:
-            # Correção crítica: usa o estoque calculado na hora
             estoque = _estoque_real(db, sku_sel)
             if qtd > estoque:
                 st.error(f"Estoque insuficiente. Disponível: {estoque}.")
@@ -265,7 +264,7 @@ def _form_nova_venda(db, params):
 
     st.divider()
 
-    # ---------------- Resumo ----------------
+    # ---------------- RESUMO VISUAL ----------------
     if carrinho:
         total_bruto, custo_pecas, imposto_estimado, frete_pago = _calcular_totais_venda(
             carrinho, params, frete_pago
@@ -283,20 +282,35 @@ def _form_nova_venda(db, params):
         valor_parcela = round(valor_financiado / num_parcelas, 2) if num_parcelas > 0 else 0.0
 
         st.subheader("📊 Resumo da venda")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total bruto", brl(total_bruto))
-        c2.metric("Desconto", brl(desconto))
-        c3.metric("Total da venda", brl(total_venda))
-        c4.metric("Entrada", brl(entrada))
+        
+        # Bloco 1: Valores da Venda
+        with st.container(border=True):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total bruto", brl(total_bruto))
+            c2.metric("Desconto", brl(desconto))
+            c3.metric("Total da venda", brl(total_venda))
+            c4.metric("Entrada", brl(entrada))
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Financiado", brl(valor_financiado))
-        c2.metric("Parcela", brl(valor_parcela))
-        c3.metric("Lucro contrib.", brl(lucro_contrib))
-        c4.metric("Margem", pct(margem))
+        # Bloco 2: Custos e Financiamento
+        with st.container(border=True):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Taxas + Impostos", brl(taxa_valor + imposto_estimado + embalagem + frete_pago))
+            c2.metric("Custo das peças", brl(custo_pecas))
+            c3.metric("Valor Financiado", brl(valor_financiado))
+            c4.metric("Parcela", brl(valor_parcela))
 
-        # BOTÃO DE FINALIZAR VENDA
+        # Bloco 3: Lucro (SOMENTE ADMINISTRADOR)
+        if st.session_state.get("cargo") == "Administrador":
+            with st.container(border=True):
+                c1, c2 = st.columns(2)
+                c1.metric("🟢 Lucro Contribuição", brl(lucro_contrib))
+                c2.metric("🟢 Margem de Lucro", pct(margem))
+        else:
+            st.caption("🔒 *Informações de lucro e margem restritas ao administrador.*")
+
+        # BOTÃO DE FINALIZAR VENDA (VISÍVEL PARA TODOS)
         st.markdown("---")
+        
         if st.button("✅ Finalizar venda", type="primary", use_container_width=True):
             numero = _proximo_numero_venda(db)
             data_dt = datetime.combine(data_venda, datetime.min.time())
@@ -313,11 +327,10 @@ def _form_nova_venda(db, params):
                 "total_venda": total_venda,
                 "total_bruto": total_bruto,
                 "total_liquido": total_liquido,
-                # Nomes compatíveis com DRE
                 "custo_pecas": custo_pecas,
-                "custo_total": custo_pecas,          # legado
+                "custo_total": custo_pecas,
                 "imposto_estimado": imposto_estimado,
-                "imposto": imposto_estimado,          # legado
+                "imposto": imposto_estimado,
                 "taxa_pagamento": taxa_valor,
                 "embalagem": embalagem,
                 "frete_pago": frete_pago,
@@ -336,7 +349,7 @@ def _form_nova_venda(db, params):
                 "criado_por": st.session_state.get("usuario_logado", ""),
             }
             db["vendas"].insert_one(venda_doc)
-            _gravar_itens_venda(db, carrinho, numero, data_dt)  # ← coleção itens_venda
+            _gravar_itens_venda(db, carrinho, numero, data_dt)
             
             st.session_state["carrinho_venda"] = []
             st.success(f"Venda **{numero}** registrada com sucesso!")
@@ -402,16 +415,18 @@ def _lista_vendas(db):
         )
 
         if v.get("status") == "Concluída":
-            if st.button("❌ Cancelar venda (devolve estoque)"):
-                db["vendas"].update_one(
-                    {"_id": v["_id"]},
-                    {"$set": {
-                        "status": "Cancelada",
-                        "situacao": "Cancelada",
-                        "saldo_a_receber": 0.0,
-                        "cancelado_em": datetime.now(),
-                    }},
-                )
-                _apagar_itens_venda(db, v.get("numero_venda", ""))  # ← remove da itens_venda
-                st.success("Venda cancelada e estoque devolvido.")
-                st.rerun()
+            # Botão de cancelar venda restrito ao Administrador
+            if st.session_state.get("cargo") == "Administrador":
+                if st.button("❌ Cancelar venda (devolve estoque)"):
+                    db["vendas"].update_one(
+                        {"_id": v["_id"]},
+                        {"$set": {
+                            "status": "Cancelada",
+                            "situacao": "Cancelada",
+                            "saldo_a_receber": 0.0,
+                            "cancelado_em": datetime.now(),
+                        }},
+                    )
+                    _apagar_itens_venda(db, v.get("numero_venda", ""))
+                    st.success("Venda cancelada e estoque devolvido.")
+                    st.rerun()
