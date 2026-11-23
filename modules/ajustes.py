@@ -11,7 +11,7 @@ TIPOS_AJUSTE = {
     "Devolução de cliente": +1,
     "Troca (saída)": -1,
     "Troca (entrada)": +1,
-    "Acerto de inventário (positivo)": +1,
+    "Acerto de inventário (positivo)": +1, # Aqui ele será recalculado se for inventário
     "Acerto de inventário (negativo)": -1,
 }
 
@@ -96,13 +96,23 @@ def tela_ajustes():
                 data_ajuste = st.date_input("Data do ajuste *", value=date.today())
                 sku = st.selectbox("SKU *", skus)
                 estoque_atual = _estoque_disponivel(db, sku)
-                st.info(f"Estoque atual do SKU: **{estoque_atual}** peça(s)")
+                st.info(f"Estoque atual do sistema: **{estoque_atual}** peça(s)")
             with col2:
                 tipo = st.selectbox("Tipo de ajuste *", list(TIPOS_AJUSTE.keys()))
-                quantidade = st.number_input(
-                    "Quantidade * (sempre positiva)",
-                    min_value=1, value=1, step=1,
-                )
+                
+                # Se for inventário, pede a quantidade REAL contada
+                if "inventário" in tipo.lower():
+                    qtd_contada = st.number_input("Quantidade REAL contada", min_value=0, value=estoque_atual, step=1)
+                    # Calcula a diferença silenciosamente
+                    quantidade = qtd_contada - estoque_atual
+                    st.caption(f"Diferença a ser ajustada: **{quantidade}**")
+                else:
+                    # Para os outros, pede a quantidade de peças do evento
+                    quantidade = st.number_input(
+                        "Quantidade * (sempre positiva)",
+                        min_value=1, value=1, step=1,
+                    )
+                    qtd_contada = None
             with col3:
                 motivo = st.text_input("Motivo / observações *")
 
@@ -110,20 +120,22 @@ def tela_ajustes():
 
             if submit:
                 erros = []
-                if quantidade <= 0:
-                    erros.append("A quantidade deve ser maior que zero.")
                 if not motivo:
                     erros.append("Informe o motivo do ajuste.")
 
-                # Aviso se a saída deixar estoque negativo
-                sinal = TIPOS_AJUSTE[tipo]
-                qtd_final = sinal * int(quantidade)
-                if sinal < 0 and (estoque_atual - quantidade) < 0:
-                    erros.append(
-                        f"Estoque insuficiente: atual {estoque_atual}, "
-                        f"tentativa de saída {quantidade}. "
-                        f"O estoque ficaria negativo — ajuste a quantidade ou o tipo."
-                    )
+                # Se for inventário, a quantidade será a diferença. Se for 0, não faz nada.
+                if "inventário" in tipo.lower():
+                    qtd_final = quantidade
+                    if qtd_final == 0:
+                        erros.append("O estoque real é igual ao do sistema. Nenhum ajuste necessário.")
+                else:
+                    sinal = TIPOS_AJUSTE[tipo]
+                    qtd_final = sinal * int(quantidade)
+                    if sinal < 0 and (estoque_atual - quantidade) < 0:
+                        erros.append(
+                            f"Estoque insuficiente: atual {estoque_atual}, "
+                            f"tentativa de saída {quantidade}."
+                        )
 
                 if erros:
                     for e in erros:
@@ -139,14 +151,12 @@ def tela_ajustes():
                         "criado_em": datetime.now(),
                         "criado_por": st.session_state.get("usuario_logado"),
                     })
-                    st.success(
-                        f"Ajuste lançado: {tipo} de {quantidade} peça(s) no SKU **{sku}**."
-                    )
+                    st.success(f"Ajuste lançado com sucesso no SKU **{sku}**!")
                     st.rerun()
 
     st.divider()
 
-    # ---------- EDIÇÃO ----------
+    # ---------- EDIÇÃO (Mantida igual, mas com ajuste para inventário) ----------
     st.subheader("✏️ Editar ajuste")
     if not ajustes:
         st.info("Nenhum ajuste para editar.")
@@ -179,8 +189,8 @@ def tela_ajustes():
             idx_tipo = list(TIPOS_AJUSTE.keys()).index(a["tipo"]) if a.get("tipo") in TIPOS_AJUSTE else 0
             novo_tipo = st.selectbox("Tipo", list(TIPOS_AJUSTE.keys()), index=idx_tipo)
             nova_qtd = st.number_input(
-                "Quantidade", min_value=1,
-                value=abs(int(a.get("quantidade", 1))), step=1,
+                "Quantidade (se negativo, será subtraído)", 
+                value=int(a.get("quantidade", 1)), step=1,
             )
         with col3:
             novo_motivo = st.text_input("Motivo", value=a.get("motivo", ""))
@@ -188,7 +198,6 @@ def tela_ajustes():
         salvar = st.form_submit_button("💾 Salvar alterações")
 
         if salvar:
-            novo_sinal = TIPOS_AJUSTE[novo_tipo]
             db["ajustes"].update_one(
                 {"_id": ObjectId(ajuste_id)},
                 {"$set": {
@@ -196,7 +205,7 @@ def tela_ajustes():
                     "sku": novo_sku,
                     "produto_nome": mapa_prod[novo_sku]["nome"],
                     "tipo": novo_tipo,
-                    "quantidade": novo_sinal * int(nova_qtd),
+                    "quantidade": int(nova_qtd), # Na edição, aceita o valor exato
                     "motivo": novo_motivo,
                     "atualizado_em": datetime.now(),
                     "atualizado_por": st.session_state.get("usuario_logado"),
@@ -234,9 +243,3 @@ def tela_ajustes():
                 "Qtd líquida": v["qtd_liquida"],
             })
         st.dataframe(linhas, use_container_width=True, hide_index=True)
-
-    st.caption(
-        "💡 O ajuste **não gera movimento de caixa** e **não entra na DRE**. "
-        "Ele apenas corrige o estoque, que aparece no módulo de Produtos "
-        "na coluna **Ajustes de estoque (líq.)**."
-    )
