@@ -30,7 +30,7 @@ def _carregar_produtos(db):
 
 
 def _estoque_real(db, sku):
-    """Estoque calculado: compras − itens_venda + ajustes (igual a produtos.py e ajustes.py)."""
+    """Calcula o estoque na hora (compras - itens_venda + ajustes)."""
     compras = list(db["compras"].aggregate([
         {"$match": {"sku": sku}},
         {"$group": {"_id": None, "qtd": {"$sum": "$quantidade"}}},
@@ -58,7 +58,6 @@ def _calcular_totais_venda(itens, params, frete_pago=0.0):
 
 
 def _gravar_itens_venda(db, itens, numero_venda, data_venda):
-    """Grava cada item na coleção itens_venda (base para produtos.py, ajustes.py e painel.py)."""
     docs = []
     for i in itens:
         docs.append({
@@ -219,7 +218,7 @@ def _form_nova_venda(db, params):
         add = st.form_submit_button("➕ Adicionar item")
 
         if add:
-            # Estoque calculado na hora (compras − itens_venda + ajustes)
+            # Correção crítica: usa o estoque calculado na hora
             estoque = _estoque_real(db, sku_sel)
             if qtd > estoque:
                 st.error(f"Estoque insuficiente. Disponível: {estoque}.")
@@ -262,7 +261,7 @@ def _form_nova_venda(db, params):
     else:
         desconto = 0.0
         frete_pago = 0.0
-        st.info("Nenhum item adicionado ainda.")
+        st.info("Nenhum item adicionado ainda. Adicione pelo menos um produto acima para habilitar o botão de finalizar.")
 
     st.divider()
 
@@ -296,7 +295,9 @@ def _form_nova_venda(db, params):
         c3.metric("Lucro contrib.", brl(lucro_contrib))
         c4.metric("Margem", pct(margem))
 
-        if st.button("✅ Finalizar venda", type="primary"):
+        # BOTÃO DE FINALIZAR VENDA
+        st.markdown("---")
+        if st.button("✅ Finalizar venda", type="primary", use_container_width=True):
             numero = _proximo_numero_venda(db)
             data_dt = datetime.combine(data_venda, datetime.min.time())
             venda_doc = {
@@ -312,7 +313,7 @@ def _form_nova_venda(db, params):
                 "total_venda": total_venda,
                 "total_bruto": total_bruto,
                 "total_liquido": total_liquido,
-                # Compatível com DRE
+                # Nomes compatíveis com DRE
                 "custo_pecas": custo_pecas,
                 "custo_total": custo_pecas,          # legado
                 "imposto_estimado": imposto_estimado,
@@ -335,7 +336,8 @@ def _form_nova_venda(db, params):
                 "criado_por": st.session_state.get("usuario_logado", ""),
             }
             db["vendas"].insert_one(venda_doc)
-            _gravar_itens_venda(db, carrinho, numero, data_dt)  # ← base de produtos/ajustes/painel
+            _gravar_itens_venda(db, carrinho, numero, data_dt)  # ← coleção itens_venda
+            
             st.session_state["carrinho_venda"] = []
             st.success(f"Venda **{numero}** registrada com sucesso!")
             st.rerun()
